@@ -2,18 +2,11 @@ import tkinter as tk
 from mapa import Mapa  
 from entidades import Jugador
 
-# Constantes 
-
+# Constantes:
 TITULO_JUEGO = "Escapa del Laberinto"
-
-# Tamaño del mapa
-filas_mapa = 20
-columnas_mapa = 30
+FPS = 30
+tiempo_ciclo = 1000 // FPS 
 tamano_celda = 30 
-
-# Tamaño de la ventana
-ancho_ventana = columnas_mapa * tamano_celda
-alto_ventana = filas_mapa * tamano_celda + 50 
 
 # Colores 
 color_fondo = "#222222"
@@ -21,6 +14,8 @@ color_muro = "#555555"
 color_camino = "#BBBBBB" 
 color_jugador = "#00AAFF" 
 color_jugador_corriendo = "#0055FF" 
+color_jugador_cansado = "#550000" 
+color_hud = "#1A1A1A" 
 
 class JuegoTK:
     """
@@ -30,109 +25,150 @@ class JuegoTK:
         self.ventana = tk.Tk()
         self.ventana.title(TITULO_JUEGO)
 
+        try:
+            self.ventana.state("zoomed")
+        except:
+            self.ventana.attributes("-fullscreen", True)
+
+        self.ventana.update_idletasks()
         ancho_pantalla = self.ventana.winfo_screenwidth()
         alto_pantalla = self.ventana.winfo_screenheight()
-        pos_x = (ancho_pantalla//2) - (ancho_ventana//2)
-        pos_y = (alto_pantalla//2) - (alto_ventana//2)
-        self.ventana.geometry(f"{ancho_ventana}x{alto_ventana}+{pos_x}+{pos_y}")
+        
+        altura_hud = 60 
+        #las celdas disponibles se sacan restando la barra superior
+        cols = ancho_pantalla // tamano_celda
+        filas = (alto_pantalla-altura_hud) // tamano_celda
+
+        ancho_ventana = cols * tamano_celda
+        alto_ventana = filas * tamano_celda + altura_hud
+        
+        self.ventana.geometry(f"{ancho_ventana}x{alto_ventana}+0+0")
         self.ventana.resizable(False, False)
+        self.ventana.configure(bg=color_hud)
 
-        self.mapa = Mapa(filas_mapa, columnas_mapa)
-        self.jugador = Jugador(1, 1) #posicion inicial
+        # Inicio 
+        self.mapa = Mapa(filas, cols) 
+        self.jugador = Jugador(1, 1)
 
-        # Interfaz grafica
-        self.frame_mapa = tk.Frame(self.ventana, width=ancho_ventana, height=alto_ventana-50)
-        self.frame_mapa.pack() 
+        self.frame_info = tk.Frame(self.ventana, bg=color_hud, height=altura_hud)
+        self.frame_info.pack(side="top", fill="x")
+        #evita que el frame se encoja si los widgets son pequeños
+        self.frame_info.pack_propagate(False)
         
-        # para la información:
-        self.frame_info = tk.Frame(self.ventana, bg="#333333", height=50)
-        self.frame_info.pack(fill="x")
-        self.lbl_energia = tk.Label(self.frame_info, text="Energía: 100%", fg="white", bg="#333333", font=("Arial", 12))
-        self.lbl_energia.pack(side="left", padx=20, pady=10)
+        #elementos del HUD 
+        self.lbl_energia = tk.Label(
+            self.frame_info, 
+            text="Energía: 100%", 
+            fg="white", bg=color_hud, 
+            font=("Consolas", 14, "bold"))
+        
+        self.lbl_energia.pack(side="left", padx=30, pady=15)
 
+        # Mapa
+        self.frame_mapa = tk.Frame(self.ventana, bg="black")
+        self.frame_mapa.pack(side="bottom", fill="both", expand=True)
         self.celdas_frames = []
-        self.iniciar_visuales_mapa()
-        
-        # Dibujar al jugador 
+        self.inicializar_mapa_visual()
         self.actualizar_graficos_jugador()
 
-        # Controles para moverse:
-        self.ventana.bind("<w>", lambda e: self.jugador_moverse(-1,0))
-        self.ventana.bind("<a>", lambda e: self.jugador_moverse(0,-1))
-        self.ventana.bind("<s>", lambda e: self.jugador_moverse(1,0))
-        self.ventana.bind("<d>", lambda e: self.jugador_moverse(0,1))
+        # Controles
+        self.teclas_presionadas = {} 
+        self.ventana.bind("<KeyPress>", self.al_presionar_tecla)
+        self.ventana.bind("<KeyRelease>", self.al_soltar_tecla)
+        self.ventana.after(tiempo_ciclo, self.ciclo_juego)
+
+    def al_presionar_tecla(self, event):
+        tecla = event.keysym.lower()
+        self.teclas_presionadas[tecla] = True
         
-        self.ventana.bind("<W>", lambda e: self.jugador_moverse(-1,0))
-        self.ventana.bind("<A>", lambda e: self.jugador_moverse(0,-1))
-        self.ventana.bind("<S>", lambda e: self.jugador_moverse(1,0))
-        self.ventana.bind("<D>", lambda e: self.jugador_moverse(0,1))
+    def al_soltar_tecla(self, event):
+        tecla = event.keysym.lower()
+        self.teclas_presionadas[tecla] = False
 
-        # Para correr:
-        self.ventana.bind("<KeyPress-Shift_L>", self.correr)
-        self.ventana.bind("<KeyRelease-Shift_L>", self.dejar_de_correr)
+    def ciclo_juego(self):
+        """Loop del juego"""
+        # input
+        shift_presionado = self.teclas_presionadas.get("shift_l") or self.teclas_presionadas.get("shift_r")
+        self.jugador.actualizar_correr(shift_presionado)
 
-    def iniciar_visuales_mapa(self):
-        """
-        Crea la cuadrícula de frames y la dibuja.
-        """
+        # lógica
+        self.procesar_movimiento()
+        
+        if not self.jugador.esta_corriendo or self.jugador.en_fatiga:
+            self.jugador.manejar_energia(False)
+
+        # renderiza la interfaz
+        estado_txt = " ⚠️ CANSADO" if self.jugador.en_fatiga else ""
+        
+        # Cambio de color del texto según su estado
+        color_texto = "white"
+        if self.jugador.en_fatiga: color_texto = "#FF5555" 
+        elif self.jugador.esta_corriendo: color_texto = "#55AAFF"
+            
+        self.lbl_energia.config(text=f"Energía: {int(self.jugador.energia_actual)}%{estado_txt}", fg=color_texto)
+        self.actualizar_graficos_jugador()
+        self.ventana.after(tiempo_ciclo, self.ciclo_juego)
+
+    def procesar_movimiento(self):
+        """Lee teclas y mueve."""
+        cambio_i, cambio_j = 0, 0
+        
+        if self.teclas_presionadas.get("w"): 
+            cambio_i = -1
+        elif self.teclas_presionadas.get("s"): 
+            cambio_i = 1
+        elif self.teclas_presionadas.get("a"): 
+            cambio_j = -1
+        elif self.teclas_presionadas.get("d"): 
+            cambio_j = 1
+        
+        if cambio_i != 0 or cambio_j != 0:
+            old_i, old_j = self.jugador.i_pos, self.jugador.j_pos
+            self.celdas_frames[old_i][old_j].configure(bg=color_camino)
+
+            se_movio = self.jugador.intentar_mover(cambio_i, cambio_j, self.mapa)
+            
+            if se_movio:
+                self.jugador.manejar_energia(True)
+            elif self.jugador.esta_corriendo:
+                self.jugador.manejar_energia(True) 
+
+            self.actualizar_graficos_jugador()
+
+    def inicializar_mapa_visual(self):
+        # Centrar el mapa en el frame si sobra espacio
+        self.frame_mapa.grid_rowconfigure(0, weight=1)
+        self.frame_mapa.grid_columnconfigure(0, weight=1)
+        
+        self.contenedor_grilla = tk.Frame(self.frame_mapa, bg=color_fondo)
+        self.contenedor_grilla.pack(expand=True)
+
         for i in range(self.mapa.filas):
-            frame_fila = []
+            fila_frames = []
             for j in range(self.mapa.columnas):
                 casilla = self.mapa.matriz[i][j]
                 color = color_muro if casilla.tipo == "muro" else color_camino
                 
                 frame = tk.Frame(
-                    self.frame_mapa,
-                    width=tamano_celda,
-                    height=tamano_celda,
-                    bg=color,
-                    borderwidth=1, relief="solid")
+                    self.contenedor_grilla, width=tamano_celda, height=tamano_celda, 
+                    bg=color, borderwidth=1, relief="solid")
                 
                 frame.grid(row=i, column=j)
                 frame.grid_propagate(False)
-                frame_fila.append(frame)
-            self.celdas_frames.append(frame_fila)
-
-    def jugador_moverse(self, cambio_fila, cambio_columna):
-        """
-        Lógica para mover al jugador y actualizar la interfaz.
-        E: El cambio en fila y columna hacia donde se quiere mover.
-        S: Solo actualiza la interfaz.
-        """
-        # limpiar la posición anterior
-        old_i, old_j = self.jugador.i_pos, self.jugador.j_pos
-        self.celdas_frames[old_i][old_j].configure(bg=color_camino)
-
-        # moverse
-        se_movio = self.jugador.intentar_mover(cambio_fila, cambio_columna, self.mapa)
-
-        # energía
-        self.jugador.gestionar_energia(se_movio)
-        
-        # actualizar los gráficos y la interfaz
-        self.actualizar_graficos_jugador()
-        self.lbl_energia.config(text=f"Energía: {int(self.jugador.energia_actual)}%")
-
-    def correr(self, event):
-        """Activa correr si hay energía."""
-        if self.jugador.energia_actual > 0:
-            self.jugador.esta_corriendo = True
-            self.actualizar_graficos_jugador()
-
-    def dejar_de_correr(self, event):
-        """Desactiva correr."""
-        self.jugador.esta_corriendo = False
-        self.actualizar_graficos_jugador()
+                fila_frames.append(frame)
+            self.celdas_frames.append(fila_frames)
 
     def actualizar_graficos_jugador(self):
-        """Pinta al jugador en su posición actual."""
         i, j = self.jugador.i_pos, self.jugador.j_pos
-        frame_jugador = self.celdas_frames[i][j]
-        
-        if self.jugador.esta_corriendo:
-            frame_jugador.configure(bg=color_jugador_corriendo)
-        else:
-            frame_jugador.configure(bg=color_jugador)
+        frame = self.celdas_frames[i][j]
+    
+        color = color_jugador
+        if self.jugador.en_fatiga:
+            color = color_jugador_cansado 
+        elif self.jugador.esta_corriendo:
+            color = color_jugador_corriendo
+            
+        frame.configure(bg=color)
 
     def iniciar(self):
         self.ventana.mainloop()
