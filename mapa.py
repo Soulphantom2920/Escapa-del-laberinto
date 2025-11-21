@@ -1,3 +1,5 @@
+import random
+
 class Casilla:
     """
     Clase padre para todos terrenos.
@@ -11,13 +13,13 @@ class Casilla:
 
 class Camino(Casilla):
     """
-    Terreno accesible para ambos, hereda todo de Casilla.
+    Terreno accesible para ambos.
     """
     pass 
 
 class Muro(Casilla):
     """
-    Terreno inaccesible. 
+    Terreno inaccesible.
     """
     def __init__(self):
         self.es_accesible_jugador = False
@@ -28,7 +30,7 @@ class Muro(Casilla):
 
 class Liana(Casilla):
     """
-    Terreno accesible solo para enemigos. 
+    Terreno accesible solo para enemigos.
     """
     def __init__(self):
         self.es_accesible_jugador = False
@@ -39,7 +41,7 @@ class Liana(Casilla):
 
 class Tunel(Casilla):
     """
-    Terreno accesible solo para el jugador. 
+    Terreno accesible solo para el jugador.
     """
     def __init__(self):
         self.es_accesible_jugador = True
@@ -50,29 +52,145 @@ class Tunel(Casilla):
 
 class Mapa:
     """
-    Contiene la matriz del juego y la logica para generarla.
+    Contiene la matriz del juego y la lógica para generarla de forma aleatoria.
     """
     def __init__(self, filas, columnas):
         self.filas = filas
+        if filas % 2 == 0:
+            self.filas = filas - 1 
+
         self.columnas = columnas
+        if columnas % 2 == 0:
+            self.columnas = columnas - 1
         
         self.matriz = [] 
+        self.inicio_i = 1
+        self.inicio_j = 1
+        self.salida_i = 0
+        self.salida_j = 0
         
-        # crea el mapa estatico
-        self.generar_mapa_estatico()
+        self.generar_laberinto()
 
-    def generar_mapa_estatico(self):
+    def generar_laberinto(self):
         """
-        Crea una matriz básica con con un borde de muro y un centro de camino.
+        Da paso a la creación del mapa.
         """
+        # Llena todo de muros
         self.matriz = []
-        
         for i in range(self.filas):
-            fila_actual = [] 
+            fila = []
             for j in range(self.columnas):
-                # Para saber si está en el borde o en el centro:
-                if (i == 0 or i == (self.filas - 1) or j == 0 or j == (self.columnas - 1)):                    
-                    fila_actual.append(Muro())
-                else:
-                    fila_actual.append(Camino())
-            self.matriz.append(fila_actual) #Añadir la fila completa
+                fila.append(Muro())
+            self.matriz.append(fila)
+
+        # Crea los caminos principales
+        self.excavar_camino(1, 1)
+        
+        # Romper muros extra para dejar espacios abiertos (habitaciones)
+        self.crear_habitaciones()
+
+        # Añade las lianas y túneles
+        self.colocar_terrenos_especiales()
+
+        # Coloca la salida y el inicio
+        self.colocar_salida()
+        self.colocar_inicio()
+
+    def excavar_camino(self, i, j):
+        """
+        Algoritmo recursivo que hace los caminos.
+        """
+        self.matriz[i][j] = Camino() 
+
+        direcciones = [(-2, 0), (2, 0), (0, -2), (0, 2)]
+        random.shuffle(direcciones) 
+
+        for di, dj in direcciones:
+            ni = i + di
+            nj = j + dj 
+            
+            if 1 <= ni < self.filas - 1 and 1 <= nj < self.columnas - 1:
+                if self.matriz[ni][nj].tipo == "muro":
+                    muro_i = i + (di // 2)
+                    muro_j = j + (dj // 2)
+                    self.matriz[muro_i][muro_j] = Camino()
+                    self.excavar_camino(ni, nj)
+
+    def crear_habitaciones(self):
+        """
+        Abre algunos muros para crear habitaciones.
+        """
+        probabilidad = 0.10 
+        for i in range(1, self.filas - 1):
+            for j in range(1, self.columnas - 1):
+                if self.matriz[i][j].tipo == "muro":
+                    if i % 2 == 0 or j % 2 == 0:
+                        if random.random() < probabilidad:
+                            self.matriz[i][j] = Camino()
+
+    def colocar_terrenos_especiales(self):
+        """
+        Convierte algunos muros en lianas o túneles.
+        """
+        #probabilidades 
+        chance_liana = 0.03  
+        chance_tunel = 0.03 
+
+        for i in range(1, self.filas- 1):
+            for j in range(1, self.columnas- 1):
+                #solo reemplaza los muros internos, no los bordes 
+                if self.matriz[i][j].tipo == "muro":
+                    bateo = random.random()
+                    if bateo < chance_liana:
+                        self.matriz[i][j] = Liana()
+                    elif bateo < (chance_liana + chance_tunel):
+                        self.matriz[i][j] = Tunel()
+
+    def colocar_salida(self):
+        """
+        Coloca la salida en un borde.
+        """
+        lados = ["arriba", "abajo", "izquierda", "derecha"]
+        while True:
+            lado = random.choice(lados)
+            i, j = 0, 0
+            if lado == "arriba": i, j = 0, random.randrange(1, self.columnas - 1)
+            elif lado == "abajo": i, j = self.filas - 1, random.randrange(1, self.columnas - 1)
+            elif lado == "izquierda": i, j = random.randrange(1, self.filas - 1), 0
+            elif lado == "derecha": i, j = random.randrange(1, self.filas - 1), self.columnas - 1
+
+            #verificar 
+            tiene_camino = False
+            vecinos = [(-1,0), (1,0), (0,-1), (0,1)]
+            for vi, vj in vecinos:
+                vec_i, vec_j = i + vi, j + vj
+                if 0 <= vec_i < self.filas and 0 <= vec_j < self.columnas:
+                    if self.matriz[vec_i][vec_j].tipo == "camino":
+                        tiene_camino = True
+                        break
+            if tiene_camino:
+                self.salida_i = i
+                self.salida_j = j
+                self.matriz[i][j] = Camino()
+                self.matriz[i][j].es_salida = True
+                break 
+
+    def colocar_inicio(self):
+        """
+        Coloca al jugador lejos de la salida.
+        """
+        max_distancia = -1
+        mejor_i, mejor_j = 1, 1
+        candidatos = [(1, 1), (1, self.columnas-2), (self.filas-2, 1), (self.filas-2, self.columnas-2)]
+
+        for i, j in candidatos:
+            if i < self.filas and j < self.columnas:
+                dist = abs(i - self.salida_i) + abs(j - self.salida_j)
+                if dist > max_distancia:
+                    max_distancia = dist
+                    mejor_i, mejor_j = i, j
+        
+        self.inicio_i = mejor_i
+        self.inicio_j = mejor_j
+        self.matriz[mejor_i][mejor_j] = Camino()
+        
