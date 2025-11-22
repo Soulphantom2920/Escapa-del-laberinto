@@ -27,6 +27,8 @@ color_jugador   = "#00AAFF"
 color_enemigo   = "#FF0000"
 color_jugador_corriendo = "#0055FF" 
 color_jugador_cansado   = "#550000" 
+color_victoria = "#2E8B57" 
+color_derrota  = "#8B0000" 
 
 class JuegoTK:
     """
@@ -61,6 +63,9 @@ class JuegoTK:
 
         self.jugador = Jugador(self.mapa.inicio_i, self.mapa.inicio_j)
         
+        # para detener el juego
+        self.juego_terminado = False
+
         # comenzar lista de enemigos
         self.lista_enemigos = []
         self.arrancar_enemigos(enemigos_base)
@@ -119,15 +124,34 @@ class JuegoTK:
 
     def ciclo_juego(self):
         """Loop del juego"""
+        
+        # si el juego terminó, se detiene el ciclo
+        if self.juego_terminado:
+            return
+
         shift_presionado = self.teclas_presionadas.get('shift_l') or self.teclas_presionadas.get('shift_r')
         self.jugador.actualizar_correr(shift_presionado)
 
         self.procesar_movimiento()
         
+        # ver las condiciones al mover al jugador
+        if self.verificar_victoria():
+            self.terminar_juego(gano=True)
+            return
+        
+        if self.verificar_colisiones():
+            self.terminar_juego(gano=False)
+            return
+
         if not self.jugador.esta_corriendo or self.jugador.en_fatiga:
              self.jugador.manejar_energia(False)
 
         self.mover_enemigos()
+
+        # ver las condiciones al mover al enemigos
+        if self.verificar_colisiones():
+            self.terminar_juego(gano=False)
+            return
 
         estado_txt = " ⚠️ CANSADO" if self.jugador.en_fatiga else ""
         color_texto = "white"
@@ -169,9 +193,58 @@ class JuegoTK:
                 self.jugador.manejar_energia(True) 
 
             self.actualizar_graficos_jugador()
+    
+    def verificar_victoria(self):
+        """
+        Retorna True si el jugador toca la salida.
+        """
+        i, j = self.jugador.i_pos, self.jugador.j_pos
+        return self.mapa.matriz[i][j].es_salida
+
+    def verificar_colisiones(self):
+        """
+        Retorna True si un enemigo toca al jugador.
+        """
+        p_i, p_j = self.jugador.i_pos, self.jugador.j_pos
+        for enemigo in self.lista_enemigos:
+            if (enemigo.fila_actual == p_i) and (enemigo.columna_actual == p_j):
+                return True
+        return False
+
+    def terminar_juego(self, gano):
+        """
+        Muestra el mensaje final y detiene el loop.
+        """
+        self.juego_terminado = True
+        
+        if gano:
+            titulo = "¡VICTORIA!"
+            mensaje = "¡Has escapado del laberinto!"
+            bg_color = color_victoria
+        else:
+            titulo = "GAME OVER"
+            mensaje = "Te han cazado..."
+            bg_color = color_derrota
+            
+        #crea el mensaje flotante
+        ancho_msg = 400
+        alto_msg = 200
+        pantalla_w = self.ventana.winfo_width()
+        pantalla_h = self.ventana.winfo_height()
+        x = (pantalla_w//2) - (ancho_msg//2)
+        y = (pantalla_h//2) - (alto_msg//2)
+
+        frame_final = tk.Frame(self.ventana, bg=bg_color, bd=4, relief="raised")
+        frame_final.place(x=x, y=y, width=ancho_msg, height=alto_msg)
+        
+        tk.Label(frame_final, text=titulo, bg=bg_color, fg="white", font=("Arial", 24, "bold")).pack(pady=20)
+        tk.Label(frame_final, text=mensaje, bg=bg_color, fg="white", font=("Arial", 12)).pack(pady=10)
+        tk.Button(frame_final, text="Salir", font=("Arial", 12, "bold"), command=self.ventana.destroy).pack(pady=20)
 
     def restaurar_color_celda(self, i, j):
-        """Pinta la celda de su color original segun su tipo."""
+        """
+        Pinta la celda de su color original segun su tipo.
+        """
         casilla = self.mapa.matriz[i][j]
         color = color_camino
 
