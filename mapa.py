@@ -193,4 +193,38 @@ class Mapa:
         self.inicio_i = mejor_i
         self.inicio_j = mejor_j
         self.matriz[mejor_i][mejor_j] = Camino()
+
+    def colocar_terrenos_especiales(self):
+        """
+        Convierte algunos muros en lianas o túneles, solo si tiene dos muros 
+        a la izq y der o arriba y abajo para que sean puentes.
+        """
+        # probabilidades 
+        chance_liana = 0.04  
+        chance_tunel = 0.04 
+
+        for i in range(1, self.filas- 1):
+            for j in range(1, self.columnas- 1):
+                #no reemplaza bordes 
+                if self.matriz[i][j].tipo == "muro":
+                    #revisar si cumple
+                    util = self.ver_utilidad_muro(i, j)
+
+                    if util:
+                        bateo = random.random()
+                        if bateo < chance_liana:
+                            self.matriz[i][j] = Liana()
+                        elif bateo < (chance_liana+chance_tunel):
+                            self.matriz[i][j] = Tunel()
+
+    def ver_utilidad_muro(self, i, j):
+        """
+        Verifica si el muro está entre dos muros en el mismo eje.
+        E: Coordenadas del muro.
+        S: True si es un puente válido.
+        """
+        es_horizontal = (self.matriz[i][j-1].tipo == "muro" and self.matriz[i][j+1].tipo == "muro")
+        es_vertical = (self.matriz[i-1][j].tipo == "muro" and self.matriz[i+1][j].tipo == "muro")
+        
+        return es_horizontal or es_vertical
         
