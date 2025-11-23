@@ -1,5 +1,6 @@
 import tkinter as tk
 import random 
+import sys
 from mapa import Mapa  
 from entidades import Jugador, Enemigo
 
@@ -16,15 +17,15 @@ enemigos_dificil = 10
 enemigos_base = enemigos_facil #temporal
 
 # Colores 
-color_fondo     = "#222222"
-color_muro      = "#555555"   
-color_camino    = "#BBBBBB" 
-color_tunel     = "#8B4513"  
-color_liana     = "#006400"  
-color_salida    = "#00FF00"
-color_hud       = "#1A1A1A"
-color_jugador   = "#00AAFF" 
-color_enemigo   = "#FF0000"
+color_fondo    = "#222222"
+color_muro     = "#555555"   
+color_camino   = "#BBBBBB" 
+color_tunel    = "#8B4513"  
+color_liana    = "#006400"  
+color_salida   = "#00FF00"
+color_hud      = "#1A1A1A"
+color_jugador  = "#00AAFF" 
+color_enemigo  = "#FF0000"
 color_jugador_corriendo = "#0055FF" 
 color_jugador_cansado   = "#550000" 
 color_victoria = "#2E8B57" 
@@ -34,8 +35,10 @@ class JuegoTK:
     """
     Clase principal que maneja la GUI de Tkinter y la lógica central del juego.
     """
-    def __init__(self):
-        self.ventana = tk.Tk()
+    def __init__(self, callback_volver=None):
+        self.callback_volver = callback_volver
+        
+        self.ventana = tk.Toplevel() 
         self.ventana.title(TITULO_JUEGO)
 
         try:
@@ -63,8 +66,9 @@ class JuegoTK:
 
         self.jugador = Jugador(self.mapa.inicio_i, self.mapa.inicio_j)
         
-        # para detener el juego
         self.juego_terminado = False
+        self.en_pausa = False 
+        self.frame_overlay = None
 
         # comenzar lista de enemigos
         self.lista_enemigos = []
@@ -83,6 +87,8 @@ class JuegoTK:
             font=("Consolas", 14, "bold"))
         
         self.lbl_energia.pack(side="left", padx=30, pady=15)
+        
+        tk.Label(self.frame_info, text="[ESC] PAUSA", fg="#777777", bg=color_hud).pack(side="right", padx=20)
 
         self.frame_mapa = tk.Frame(self.ventana, bg="black")
         self.frame_mapa.pack(side="bottom", fill="both", expand=True)
@@ -94,7 +100,11 @@ class JuegoTK:
         # Controles
         self.teclas_presionadas = {} 
         self.ventana.bind("<KeyPress>", self.al_presionar_tecla)
-        self.ventana.bind("<KeyRelease>", self.al_soltar_tecla)        
+        self.ventana.bind("<KeyRelease>", self.al_soltar_tecla)
+        self.ventana.bind("<Escape>", self.alternar_pausa)        
+        
+        self.ventana.protocol("WM_DELETE_WINDOW", self.salir_al_menu)
+
         self.ventana.after(tiempo_ciclo, self.ciclo_juego)
 
     def arrancar_enemigos(self, cantidad):
@@ -122,11 +132,32 @@ class JuegoTK:
         tecla = event.keysym.lower()
         self.teclas_presionadas[tecla] = False
 
+    def alternar_pausa(self, event=None):
+        if self.juego_terminado: return 
+        
+        self.en_pausa = not self.en_pausa
+        
+        if self.en_pausa:
+            self.mostrar_overlay_menu(
+                titulo="JUEGO EN PAUSA",
+                bg_color="#333333",
+                opciones=[("REANUDAR", self.alternar_pausa),
+                          ("VOLVER AL MENÚ", self.salir_al_menu),
+                          ("SALIR DEL JUEGO", self.salir_del_todo)])
+        else:
+            if self.frame_overlay is not None:
+                self.frame_overlay.destroy()
+                self.frame_overlay = None
+
     def ciclo_juego(self):
         """Loop del juego"""
         
         # si el juego terminó, se detiene el ciclo
         if self.juego_terminado:
+            return
+
+        if self.en_pausa:
+            self.ventana.after(tiempo_ciclo, self.ciclo_juego)
             return
 
         shift_presionado = self.teclas_presionadas.get('shift_l') or self.teclas_presionadas.get('shift_r')
@@ -213,33 +244,75 @@ class JuegoTK:
 
     def terminar_juego(self, gano):
         """
-        Muestra el mensaje final y detiene el loop.
+        Muestra el mensaje y detiene el loop.
         """
         self.juego_terminado = True
         
         if gano:
-            titulo = "¡VICTORIA!"
-            mensaje = "¡Has escapado del laberinto!"
-            bg_color = color_victoria
+            t = "¡VICTORIA!"
+            sub = "Has escapado del laberinto"
+            c = color_victoria
         else:
-            titulo = "GAME OVER"
-            mensaje = "Te han cazado..."
-            bg_color = color_derrota
-            
-        #crea el mensaje flotante
-        ancho_msg = 400
-        alto_msg = 200
-        pantalla_w = self.ventana.winfo_width()
-        pantalla_h = self.ventana.winfo_height()
-        x = (pantalla_w//2) - (ancho_msg//2)
-        y = (pantalla_h//2) - (alto_msg//2)
+            t = "GAME OVER"
+            sub = "Te han atrapado..."
+            c = color_derrota
 
-        frame_final = tk.Frame(self.ventana, bg=bg_color, bd=4, relief="raised")
-        frame_final.place(x=x, y=y, width=ancho_msg, height=alto_msg)
+        self.mostrar_overlay_menu(
+            titulo=t,
+            mensaje_extra=sub,
+            bg_color=c,
+            opciones=[("JUGAR DE NUEVO", self.reiniciar_partida),
+                      ("VOLVER AL MENÚ", self.salir_al_menu)])
+
+    def mostrar_overlay_menu(self, titulo, bg_color, opciones, mensaje_extra=""):
+        """
+        Crea un cuadro flotante con el contenido centrado.
+        """
         
-        tk.Label(frame_final, text=titulo, bg=bg_color, fg="white", font=("Arial", 24, "bold")).pack(pady=20)
-        tk.Label(frame_final, text=mensaje, bg=bg_color, fg="white", font=("Arial", 12)).pack(pady=10)
-        tk.Button(frame_final, text="Salir", font=("Arial", 12, "bold"), command=self.ventana.destroy).pack(pady=20)
+        if self.frame_overlay is not None:
+            self.frame_overlay.destroy()
+            self.frame_overlay = None
+
+        ancho_msg, alto_msg = 500, 550 
+        screen_w = self.ventana.winfo_width()
+        screen_h = self.ventana.winfo_height()
+        x = (screen_w // 2) - (ancho_msg // 2)
+        y = (screen_h // 2) - (alto_msg // 2)
+
+        self.frame_overlay = tk.Frame(self.ventana, bg=bg_color, bd=4, relief="ridge")
+        self.frame_overlay.place(x=x, y=y, width=ancho_msg, height=alto_msg)
+        
+        # Contenedor interno
+        contenedor_central = tk.Frame(self.frame_overlay, bg=bg_color)
+        contenedor_central.place(relx=0.5, rely=0.5, anchor="center", width=ancho_msg-40)
+
+        tk.Label(contenedor_central, text=titulo, bg=bg_color, fg="white", font=("Arial", 28, "bold")).pack(pady=(0, 20))
+        
+        if mensaje_extra:
+            tk.Label(contenedor_central, text=mensaje_extra, bg=bg_color, fg="#DDDDDD", font=("Arial", 14)).pack(pady=(0, 30))
+
+        for texto, comando in opciones:
+            btn = tk.Button(contenedor_central, text=texto, 
+                            font=("Arial", 12, "bold"),
+                            bg="#444444", fg="white", 
+                            activebackground="#666666",
+                            relief="raised", 
+                            cursor="hand2", 
+                            command=comando)
+            btn.pack(pady=10, fill="x", padx=50)
+
+    def reiniciar_partida(self):
+        self.ventana.destroy()
+        JuegoTK(callback_volver=self.callback_volver)
+
+    def salir_al_menu(self):
+        self.ventana.destroy()
+        if self.callback_volver:
+            self.callback_volver()
+            
+    def salir_del_todo(self):
+        self.ventana.destroy()
+        sys.exit()
 
     def restaurar_color_celda(self, i, j):
         """
@@ -274,14 +347,7 @@ class JuegoTK:
                 elif casilla.tipo == "liana": color = color_liana
                 elif casilla.tipo == "tunel": color = color_tunel
                 
-                frame = tk.Frame(
-                    self.contenedor_grilla, 
-                    width=tamano_celda, 
-                    height=tamano_celda, 
-                    bg=color, 
-                    borderwidth=1, 
-                    relief="solid")
-                
+                frame = tk.Frame(self.contenedor_grilla, width=tamano_celda, height=tamano_celda, bg=color, borderwidth=1, relief="solid")
                 frame.grid(row=i, column=j)
                 frame.grid_propagate(False)
                 fila_frames.append(frame)
@@ -297,4 +363,4 @@ class JuegoTK:
         frame.configure(bg=color)
 
     def iniciar(self):
-        self.ventana.mainloop()
+        pass

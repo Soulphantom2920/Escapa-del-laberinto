@@ -86,7 +86,7 @@ class Mapa:
         # Crea los caminos principales
         self.excavar_camino(1, 1)
         
-        # Romper muros extra para dejar espacios abiertos (habitaciones)
+        # Romper muros extra para dejar espacios abiertos 
         self.crear_habitaciones()
 
         # Añade las lianas y túneles
