@@ -22,7 +22,7 @@ class Jugador:
         self.max_trampas_activas = 3
         self.trampas_colocadas = [] 
         self.cooldown_trampa = 5 
-        self.contador_cooldown = 0 
+        self.contador_cooldown = 0
 
         # Velocidad
         self.ultimo_movimiento = 0
@@ -96,6 +96,39 @@ class Jugador:
                 self.energia_actual = 0
                 self.en_fatiga = True
                 self.esta_corriendo = False 
+
+    def intentar_colocar_trampa(self, mapa_obj):
+        """
+        Intenta colocar una trampa en la posición actual.
+        Retorna True si sí pudo.
+        """
+        tiempo_actual = time.time()
+
+        #verifica el cooldown
+        if (tiempo_actual - self.contador_cooldown) < self.cooldown_trampa:
+            return False
+        
+        #verifica la cantidad máxima
+        if len(self.trampas_colocadas) >= self.max_trampas_activas:
+            return False
+
+        #verifica que no haya ya una trampa ahí
+        casilla_actual = mapa_obj.matriz[self.i_pos][self.j_pos]
+        if casilla_actual.es_trampa:
+            return False
+            
+        #coloca la trampa
+        casilla_actual.es_trampa = True
+        self.trampas_colocadas.append((self.i_pos, self.j_pos))
+        self.contador_cooldown = tiempo_actual
+        return True
+
+    def remover_trampa_de_lista(self, i, j):
+        """
+        Elimina la trampa de la lista interna para liberar el cupo.
+        """
+        if (i, j) in self.trampas_colocadas:
+            self.trampas_colocadas.remove((i, j))
 
 
 class Enemigo:

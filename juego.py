@@ -1,6 +1,7 @@
 import tkinter as tk
 import random 
 import sys
+import time
 from mapa import Mapa  
 from entidades import Jugador, Enemigo
 
@@ -16,6 +17,11 @@ enemigos_medio = 6
 enemigos_dificil = 10
 enemigos_base = enemigos_facil #temporal
 
+# Configuración del modo cazador
+tiempo_cazador   = 60 #segundos
+puntos_atrapar   = 75
+puntos_escaparon = 50
+
 # Colores 
 color_fondo    = "#222222"
 color_muro     = "#555555"   
@@ -30,16 +36,19 @@ color_jugador_corriendo = "#0055FF"
 color_jugador_cansado   = "#550000" 
 color_victoria = "#2E8B57" 
 color_derrota  = "#8B0000" 
+color_trampa   = "#FF00FF" 
 
 class JuegoTK:
     """
     Clase principal que maneja la GUI de Tkinter y la lógica central del juego.
     """
-    def __init__(self, callback_volver=None):
+    def __init__(self, modo="escapa", callback_volver=None):
+        self.modo = modo #guardar el modo actual
         self.callback_volver = callback_volver
         
         self.ventana = tk.Toplevel() 
-        self.ventana.title(TITULO_JUEGO)
+        titulo_ventana = f"{TITULO_JUEGO} - MODO {self.modo.upper()}"
+        self.ventana.title(titulo_ventana)
 
         try:
             self.ventana.state("zoomed")
@@ -70,23 +79,43 @@ class JuegoTK:
         self.en_pausa = False 
         self.frame_overlay = None
 
-        # comenzar lista de enemigos
-        self.lista_enemigos = []
-        self.arrancar_enemigos(enemigos_base)
+        # Variables propias de cada modo
+        self.puntaje = 0
+        self.tiempo_inicio_juego = time.time()
+        self.tiempo_limite = tiempo_cazador 
 
         # GUI
         self.frame_info = tk.Frame(self.ventana, bg=color_hud, height=altura_hud)
         self.frame_info.pack(side="top", fill="x")
         self.frame_info.pack_propagate(False) 
         
+        # Energía
         self.lbl_energia = tk.Label(
             self.frame_info, 
             text="Energía: 100%", 
             fg="white",
             bg=color_hud,
             font=("Consolas", 14, "bold"))
+        self.lbl_energia.pack(side="left", padx=(30, 20), pady=15)
+
+        # HUD dependiendo del modo
+        self.lbl_trampas = None
+        self.lbl_puntaje = None
+        self.lbl_tiempo = None
+
+        if self.modo == "escapa":
+            self.lbl_trampas = tk.Label(
+                self.frame_info, text="Trampas: 3", fg="white", bg=color_hud, font=("Consolas", 14, "bold"))
+            self.lbl_trampas.pack(side="left", padx=20, pady=15)
         
-        self.lbl_energia.pack(side="left", padx=30, pady=15)
+        elif self.modo == "cazador":
+            self.lbl_puntaje = tk.Label(
+                self.frame_info, text="Puntaje: 0", fg="#FFFF00", bg=color_hud, font=("Consolas", 14, "bold"))
+            self.lbl_puntaje.pack(side="left", padx=20, pady=15)
+            
+            self.lbl_tiempo = tk.Label(
+                self.frame_info, text=f"Tiempo: {self.tiempo_limite}", fg="white", bg=color_hud, font=("Consolas", 14, "bold"))
+            self.lbl_tiempo.pack(side="left", padx=20, pady=15)
         
         tk.Label(self.frame_info, text="[ESC] PAUSA", fg="#777777", bg=color_hud).pack(side="right", padx=20)
 
@@ -101,28 +130,74 @@ class JuegoTK:
         self.teclas_presionadas = {} 
         self.ventana.bind("<KeyPress>", self.al_presionar_tecla)
         self.ventana.bind("<KeyRelease>", self.al_soltar_tecla)
-        self.ventana.bind("<Escape>", self.alternar_pausa)        
+        self.ventana.bind("<Escape>", self.alternar_pausa)
+        self.ventana.bind("<space>", self.al_presionar_espacio)    
         
         self.ventana.protocol("WM_DELETE_WINDOW", self.salir_al_menu)
+
+        # lista de enemigos 
+        self.lista_enemigos = []
+        cant_enemigos = enemigos_base
+        if self.modo == "cazador":
+            cant_enemigos += 1 
+        self.arrancar_enemigos(cant_enemigos)
 
         self.ventana.after(tiempo_ciclo, self.ciclo_juego)
 
     def arrancar_enemigos(self, cantidad):
         """
-        Crea la cantidad de enemigos definida por la dificultad y los ubica en el mapa.
+        Crea los enemigos de forma que no aparezcan sobre el jugador 
+        ni muy cerca de la salida para el modo cazador.
         """
         contador = 0
-        while contador < cantidad:
+        intentos = 0
+        while contador < cantidad and intentos < 1000:
             i = random.randrange(1, self.mapa.filas-1, 2)
             j = random.randrange(1, self.mapa.columnas-1, 2)
+            intentos += 1
             
             pos_enemigo = (i, j)
             pos_jugador = (self.jugador.i_pos, self.jugador.j_pos)
             
-            if pos_enemigo != pos_jugador:
-                nuevo_enemigo = Enemigo(i, j, velocidad=0.3)
-                self.lista_enemigos.append(nuevo_enemigo)
-                contador += 1
+            if pos_enemigo == pos_jugador:
+                continue
+
+            # validacion en el modo cazador, distancia segura de la salida
+            if self.modo == "cazador":
+                dist_salida = abs(i - self.mapa.salida_i) + abs(j - self.mapa.salida_j)
+                if dist_salida < 15: #min 15 casillas de distancia
+                    continue
+
+            # Si pasa las pruebas se crea
+            nuevo_enemigo = Enemigo(i, j, velocidad=0.3)
+            self.lista_enemigos.append(nuevo_enemigo)
+            contador += 1
+    
+    def respawn_enemigo(self):
+        """
+        Genera un nuevo enemigo.
+        """
+        if self.juego_terminado: return
+        creado = False
+        intentos = 0
+        while not creado and intentos < 100:
+            i = random.randrange(1, self.mapa.filas-1)
+            j = random.randrange(1, self.mapa.columnas-1)
+            intentos += 1
+            
+            # Solo en camino
+            if self.mapa.matriz[i][j].es_accesible_enemigo:
+                if (i, j) != (self.jugador.i_pos, self.jugador.j_pos):
+                    
+                    # Validación modo cazador, distancia segura
+                    if self.modo == "cazador":
+                        dist_salida = abs(i - self.mapa.salida_i) + abs(j - self.mapa.salida_j)
+                        if dist_salida < 15:
+                            continue
+
+                    nuevo = Enemigo(i, j, velocidad=0.3)
+                    self.lista_enemigos.append(nuevo)
+                    creado = True
 
     def al_presionar_tecla(self, event):
         tecla = event.keysym.lower()
@@ -132,11 +207,21 @@ class JuegoTK:
         tecla = event.keysym.lower()
         self.teclas_presionadas[tecla] = False
 
+    def al_presionar_espacio(self, event):
+        """
+        Pone una trampa.
+        """
+        if self.juego_terminado or self.en_pausa: return
+        if self.modo != "escapa": return #desactivado en modo cazador
+
+        if self.jugador.intentar_colocar_trampa(self.mapa):
+            i, j = self.jugador.i_pos, self.jugador.j_pos
+            self.celdas_frames[i][j].configure(bg=color_trampa)
+            self.actualizar_graficos_jugador()
+
     def alternar_pausa(self, event=None):
         if self.juego_terminado: return 
-        
-        self.en_pausa = not self.en_pausa
-        
+        self.en_pausa = not self.en_pausa        
         if self.en_pausa:
             self.mostrar_overlay_menu(
                 titulo="JUEGO EN PAUSA",
@@ -151,58 +236,116 @@ class JuegoTK:
 
     def ciclo_juego(self):
         """Loop del juego"""
-        
-        # si el juego terminó, se detiene el ciclo
-        if self.juego_terminado:
-            return
+        if self.juego_terminado: return
 
         if self.en_pausa:
             self.ventana.after(tiempo_ciclo, self.ciclo_juego)
             return
 
+        # Verificar el tiempo del modo cazador
+        if self.modo == "cazador":
+            tiempo_actual = time.time()
+            tiempo_transcurrido = tiempo_actual - self.tiempo_inicio_juego
+            restante = int(self.tiempo_limite - tiempo_transcurrido)
+            
+            if restante <= 0:
+                restante = 0
+                self.lbl_tiempo.config(text=f"Tiempo: {restante}")
+                self.terminar_juego(gano=True) # Se acabó el tiempo, mostramos resultados
+                return
+            
+            self.lbl_tiempo.config(text=f"Tiempo: {restante}")
+
         shift_presionado = self.teclas_presionadas.get('shift_l') or self.teclas_presionadas.get('shift_r')
         self.jugador.actualizar_correr(shift_presionado)
-
         self.procesar_movimiento()
         
-        # ver las condiciones al mover al jugador
-        if self.verificar_victoria():
-            self.terminar_juego(gano=True)
-            return
-        
-        if self.verificar_colisiones():
-            self.terminar_juego(gano=False)
-            return
+        # verificar victoria/colisión
+        if self.modo == "escapa":
+            if self.verificar_victoria(): #escapó
+                self.terminar_juego(gano=True)
+                return
+            if self.verificar_colisiones(): #lo tocaron
+                self.terminar_juego(gano=False)
+                return
+        elif self.modo == "cazador":
+            self.verificar_colisiones() 
 
         if not self.jugador.esta_corriendo or self.jugador.en_fatiga:
              self.jugador.manejar_energia(False)
 
+        # mover a los enemigos
         self.mover_enemigos()
 
-        # ver las condiciones al mover al enemigos
-        if self.verificar_colisiones():
-            self.terminar_juego(gano=False)
-            return
+        if self.modo == "escapa":
+            if self.verificar_colisiones():
+                self.terminar_juego(gano=False)
+                return
+        elif self.modo == "cazador":
+            self.verificar_colisiones()
 
+        # Actualizar la barra de energía/trampas
         estado_txt = " ⚠️ CANSADO" if self.jugador.en_fatiga else ""
         color_texto = "white"
         if self.jugador.en_fatiga: color_texto = "#FF5555" 
         elif self.jugador.esta_corriendo: color_texto = "#55AAFF" 
-            
         self.lbl_energia.config(text=f"Energía: {int(self.jugador.energia_actual)}%{estado_txt}", fg=color_texto)
+
+        if self.modo == "escapa":
+            trampas_restantes = self.jugador.max_trampas_activas - len(self.jugador.trampas_colocadas)
+            tiempo_actual = time.time()
+            en_cooldown = (tiempo_actual - self.jugador.contador_cooldown) < self.jugador.cooldown_trampa
+            if en_cooldown and trampas_restantes < 3:
+                self.lbl_trampas.config(text="Recargando...", fg="yellow")
+            else:
+                self.lbl_trampas.config(text=f"Trampas: {trampas_restantes}", fg="white")
+
         self.actualizar_graficos_jugador()
         self.ventana.after(tiempo_ciclo, self.ciclo_juego)
 
     def mover_enemigos(self):
         """
-        Mueve a cada enemigo y actualiza el gráfico.
+        Mueve enemigos segun el modo.
         """
+        enemigos_a_borrar = [] 
+
         for enemigo in self.lista_enemigos:
             old_i, old_j = enemigo.fila_actual, enemigo.columna_actual
             self.restaurar_color_celda(old_i, old_j)
-            enemigo.mover_hacia_jugador(self.jugador.i_pos, self.jugador.j_pos, self.mapa)
+            
+            if self.modo == "escapa":
+                #persigue al jugador
+                enemigo.mover_hacia_jugador(self.jugador.i_pos, self.jugador.j_pos, self.mapa)
+            
+            elif self.modo == "cazador":
+                #huye hacia la salida
+                enemigo.mover_hacia_jugador(self.mapa.salida_i, self.mapa.salida_j, self.mapa)
+            
             new_i, new_j = enemigo.fila_actual, enemigo.columna_actual
-            self.celdas_frames[new_i][new_j].configure(bg=color_enemigo)
+            
+            casilla = self.mapa.matriz[new_i][new_j]            
+            # MODO ESCAPA: Trampas
+            if self.modo == "escapa" and casilla.es_trampa:
+                casilla.es_trampa = False
+                self.jugador.remover_trampa_de_lista(new_i, new_j)
+                self.restaurar_color_celda(new_i, new_j)
+                enemigos_a_borrar.append(enemigo)
+                self.ventana.after(10000, self.respawn_enemigo)
+            
+            # MODO CAZADOR: Enemigo llega a la salida
+            elif self.modo == "cazador" and casilla.es_salida:
+                #el enemigo se esccapó
+                self.puntaje -= puntos_escaparon
+                if self.puntaje < 0: self.puntaje = 0
+                self.lbl_puntaje.config(text=f"Puntaje: {self.puntaje}")
+                enemigos_a_borrar.append(enemigo)
+                self.respawn_enemigo()
+            else:
+                self.celdas_frames[new_i][new_j].configure(bg=color_enemigo)
+
+        for e in enemigos_a_borrar:
+            if e in self.lista_enemigos:
+                self.lista_enemigos.remove(e)
 
     def procesar_movimiento(self):
         cambio_i, cambio_j = 0,0
@@ -215,31 +358,52 @@ class JuegoTK:
         if cambio_i != 0 or cambio_j != 0:
             old_i, old_j = self.jugador.i_pos, self.jugador.j_pos
             se_movio = self.jugador.intentar_mover(cambio_i, cambio_j, self.mapa)
-            
+
             if se_movio:
                 self.restaurar_color_celda(old_i, old_j)
                 self.jugador.manejar_energia(True)
             
             elif self.jugador.esta_corriendo:
                 self.jugador.manejar_energia(True) 
-
+            
             self.actualizar_graficos_jugador()
     
     def verificar_victoria(self):
-        """
-        Retorna True si el jugador toca la salida.
-        """
+        """Retorna True si el jugador toca la salida (Modo Escapa)."""
         i, j = self.jugador.i_pos, self.jugador.j_pos
         return self.mapa.matriz[i][j].es_salida
 
     def verificar_colisiones(self):
         """
-        Retorna True si un enemigo toca al jugador.
+        Maneja colisiones entre el jugador y el enemigo según el modo.
+        #S: True si debe terminar el juego.
         """
         p_i, p_j = self.jugador.i_pos, self.jugador.j_pos
+        
+        enemigos_atrapados = []
+
+        hit = False
         for enemigo in self.lista_enemigos:
             if (enemigo.fila_actual == p_i) and (enemigo.columna_actual == p_j):
-                return True
+                
+                if self.modo == "escapa":
+                    return True #Game Over
+                
+                elif self.modo == "cazador":
+                    #fue atrapado
+                    enemigos_atrapados.append(enemigo)
+                    hit = True
+        
+        #Procesar los atrapados en el modo cazador
+        if self.modo == "cazador" and hit:
+            for e in enemigos_atrapados:
+                if e in self.lista_enemigos:
+                    self.lista_enemigos.remove(e)
+                    self.puntaje += puntos_atrapar
+                    self.lbl_puntaje.config(text=f"Puntaje: {self.puntaje}")
+                    self.respawn_enemigo()
+            return False
+
         return False
 
     def terminar_juego(self, gano):
@@ -248,27 +412,37 @@ class JuegoTK:
         """
         self.juego_terminado = True
         
-        if gano:
-            t = "¡VICTORIA!"
-            sub = "Has escapado del laberinto"
-            c = color_victoria
-        else:
-            t = "GAME OVER"
-            sub = "Te han atrapado..."
-            c = color_derrota
+        titulo = ""
+        mensaje = ""
+        color_bg = ""
+
+        if self.modo == "escapa":
+            if gano:
+                titulo = "¡VICTORIA!"
+                mensaje = "Has escapado del laberinto"
+                color_bg = color_victoria
+            else:
+                titulo = "GAME OVER"
+                mensaje = "Te han atrapado..."
+                color_bg = color_derrota
+        
+        elif self.modo == "cazador":
+            #en el cazador siempre terminará por tiempo
+            titulo = "TIEMPO AGOTADO"
+            mensaje = f"Puntaje Final: {self.puntaje}"
+            color_bg = "#C2773D"
 
         self.mostrar_overlay_menu(
-            titulo=t,
-            mensaje_extra=sub,
-            bg_color=c,
+            titulo=titulo,
+            mensaje_extra=mensaje,
+            bg_color=color_bg,
             opciones=[("JUGAR DE NUEVO", self.reiniciar_partida),
                       ("VOLVER AL MENÚ", self.salir_al_menu)])
 
     def mostrar_overlay_menu(self, titulo, bg_color, opciones, mensaje_extra=""):
         """
         Crea un cuadro flotante con el contenido centrado.
-        """
-        
+        """        
         if self.frame_overlay is not None:
             self.frame_overlay.destroy()
             self.frame_overlay = None
@@ -282,14 +456,13 @@ class JuegoTK:
         self.frame_overlay = tk.Frame(self.ventana, bg=bg_color, bd=4, relief="ridge")
         self.frame_overlay.place(x=x, y=y, width=ancho_msg, height=alto_msg)
         
-        # Contenedor interno
         contenedor_central = tk.Frame(self.frame_overlay, bg=bg_color)
         contenedor_central.place(relx=0.5, rely=0.5, anchor="center", width=ancho_msg-40)
 
         tk.Label(contenedor_central, text=titulo, bg=bg_color, fg="white", font=("Arial", 28, "bold")).pack(pady=(0, 20))
         
         if mensaje_extra:
-            tk.Label(contenedor_central, text=mensaje_extra, bg=bg_color, fg="#DDDDDD", font=("Arial", 14)).pack(pady=(0, 30))
+            tk.Label(contenedor_central, text=mensaje_extra, bg=bg_color, fg="#DDDDDD", font=("Arial", 18, "bold")).pack(pady=(0, 30))
 
         for texto, comando in opciones:
             btn = tk.Button(contenedor_central, text=texto, 
@@ -303,7 +476,7 @@ class JuegoTK:
 
     def reiniciar_partida(self):
         self.ventana.destroy()
-        JuegoTK(callback_volver=self.callback_volver)
+        JuegoTK(modo=self.modo, callback_volver=self.callback_volver) # Recordar el modo
 
     def salir_al_menu(self):
         self.ventana.destroy()
@@ -323,6 +496,7 @@ class JuegoTK:
 
         if casilla.tipo == "muro": color = color_muro
         elif casilla.es_salida: color = color_salida
+        elif casilla.es_trampa: color = color_trampa 
         elif casilla.tipo == "liana": color = color_liana 
         elif casilla.tipo == "tunel": color = color_tunel  
         

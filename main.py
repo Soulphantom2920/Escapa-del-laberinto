@@ -30,7 +30,7 @@ class MenuPrincipal:
 
         #botones del menú
         self.crear_boton_menu("MODO ESCAPA", self.iniciar_modo_escapa)
-        self.crear_boton_menu("MODO CAZADOR", None, estado="disabled")
+        self.crear_boton_menu("MODO CAZADOR", self.iniciar_modo_cazador)
         self.crear_boton_menu("SALIR", self.salir_del_programa)
 
     def crear_boton_menu(self, texto, comando, estado="normal"):
@@ -52,7 +52,11 @@ class MenuPrincipal:
 
     def iniciar_modo_escapa(self):
         self.raiz.withdraw() 
-        JuegoTK(callback_volver=self.mostrar_menu)
+        JuegoTK(modo="escapa", callback_volver=self.mostrar_menu)
+
+    def iniciar_modo_cazador(self):
+        self.raiz.withdraw()
+        JuegoTK(modo="cazador", callback_volver=self.mostrar_menu)
 
     def mostrar_menu(self):
         """Devuelve la ventana del menú."""
