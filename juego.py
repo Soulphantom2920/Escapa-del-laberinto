@@ -58,6 +58,11 @@ class JuegoTK:
         self.dificultad = dificultad
         self.nombre_jugador = nombre_jugador
         self.callback_volver = callback_volver
+
+        #factores de dificultad
+        self.factor_dificultad = multiplicador_facil
+        if self.dificultad == "medio": self.factor_dificultad = multiplicador_medio
+        elif self.dificultad == "dificil": self.factor_dificultad = multiplicador_dificil
         
         self.ventana = tk.Toplevel() 
         titulo_ventana = f"{TITULO_JUEGO} - {self.modo.upper()} ({self.dificultad.upper()})"
@@ -207,13 +212,13 @@ class JuegoTK:
             j = random.randrange(1, self.mapa.columnas-1, 2)
             intentos += 1
             
-            pos_enemigo = (i, j)
-            pos_jugador = (self.jugador.i_pos, self.jugador.j_pos)
-            
-            if pos_enemigo == pos_jugador:
+            #validar una distancia segura respecto al jugador
+            distancia_jugador = abs(i-self.jugador.i_pos) + abs(j-self.jugador.j_pos)
+            #si está a menos de 10 casillas, se busca otra posición
+            if distancia_jugador < 10:
                 continue
 
-            # validacion en el modo cazador, distancia segura de la salida
+            # validacion en el modo cazador
             if self.modo == "cazador":
                 dist_salida = abs(i-self.mapa.salida_i) + abs(j-self.mapa.salida_j)
                 if dist_salida < 15:
@@ -242,17 +247,19 @@ class JuegoTK:
             
             # Solo en camino
             if self.mapa.matriz[i][j].es_accesible_enemigo:
-                if (i, j) != (self.jugador.i_pos, self.jugador.j_pos):
+                #distancia para el respawn
+                distancia_jugador = abs(i - self.jugador.i_pos) + abs(j - self.jugador.j_pos)
+                if distancia_jugador < 10:
+                    continue
                     
-                    # Validación modo cazador, distancia segura
-                    if self.modo == "cazador":
-                        dist_salida = abs(i - self.mapa.salida_i) + abs(j - self.mapa.salida_j)
-                        if dist_salida < 15:
-                            continue
+                if self.modo == "cazador":
+                    dist_salida = abs(i - self.mapa.salida_i) + abs(j - self.mapa.salida_j)
+                    if dist_salida < 15:
+                        continue
 
-                    nuevo = Enemigo(i, j, velocidad=vel)
-                    self.lista_enemigos.append(nuevo)
-                    creado = True
+                nuevo = Enemigo(i, j, velocidad=vel)
+                self.lista_enemigos.append(nuevo)
+                creado = True
 
     def al_presionar_tecla(self, event):
         tecla = event.keysym.lower()
@@ -310,17 +317,11 @@ class JuegoTK:
                 return
             self.lbl_tiempo.config(text=f"Tiempo: {restante}")
         
-        elif self.modo == "escapa":
-            # Calcular puntaje a mostrar al jugador
-            factor_dificultad = multiplicador_facil
-            if self.dificultad == "medio": factor_dificultad = multiplicador_medio
-            elif self.dificultad == "dificil": factor_dificultad = multiplicador_dificil
-
-            # Fórmula
+        elif self.modo == "escapa": 
             segundos_sobra = max(0, int(tiempo_escapa-tiempo_pasado))
             bono_tiempo = segundos_sobra * bono_x_segundo
             bono_caza = self.enemigos_eliminados_trampa * bono_matar_cazador
-            puntaje_actual = int((base_escapa+bono_tiempo+bono_caza) * factor_dificultad)
+            puntaje_actual = int((base_escapa+bono_tiempo+bono_caza) * self.factor_dificultad)
             
             self.lbl_tiempo.config(text=f"Tiempo: {int(tiempo_pasado)}s")
             self.lbl_puntaje.config(text=f"Puntaje: {puntaje_actual}")
@@ -406,7 +407,11 @@ class JuegoTK:
                 #el enemigo se esccapó
                 self.puntaje -= puntos_escaparon
                 if self.puntaje < 0: self.puntaje = 0
-                self.lbl_puntaje.config(text=f"Puntaje: {self.puntaje}")
+                
+                #mostrar puntos en el HUD
+                puntos_reales = int(self.puntaje * self.factor_dificultad)
+                self.lbl_puntaje.config(text=f"Puntaje: {puntos_reales}")
+                
                 enemigos_a_borrar.append(enemigo)
                 self.respawn_enemigo()
             else:
@@ -469,7 +474,10 @@ class JuegoTK:
                 if e in self.lista_enemigos:
                     self.lista_enemigos.remove(e)
                     self.puntaje += puntos_atrapar
-                    self.lbl_puntaje.config(text=f"Puntaje: {self.puntaje}")
+                    #mostrar puntos en el HUD
+                    puntos_reales = int(self.puntaje * self.factor_dificultad)
+                    self.lbl_puntaje.config(text=f"Puntaje: {puntos_reales}")
+                    
                     self.respawn_enemigo()
             return False
 
@@ -485,10 +493,6 @@ class JuegoTK:
         mensaje = ""
         color_bg = ""
         
-        factor_dificultad = multiplicador_facil
-        if self.dificultad == "medio": factor_dificultad = multiplicador_medio
-        elif self.dificultad == "dificil": factor_dificultad = multiplicador_dificil
-
         puntaje_final = 0
 
         if self.modo == "escapa":
@@ -502,11 +506,11 @@ class JuegoTK:
 
                 bono_caza = self.enemigos_eliminados_trampa * bono_matar_cazador
                 puntaje_bruto = base_escapa + bono_tiempo + bono_caza
-                puntaje_final = int(puntaje_bruto * factor_dificultad)
+                puntaje_final = int(puntaje_bruto * self.factor_dificultad)
                 
                 mensaje = f"Puntaje Total: {puntaje_final}\n(Tiempo: {int(tiempo_tardado)}s)"
                 color_bg = color_victoria
-                guardar_puntaje("escapa", self.nombre_jugador, puntaje_final) 
+                guardar_puntaje("escapa", self.nombre_jugador, puntaje_final, self.dificultad) 
             else:
                 titulo = "GAME OVER"
                 mensaje = "Te han atrapado..."
@@ -514,10 +518,10 @@ class JuegoTK:
         
         elif self.modo == "cazador":
             titulo = "TIEMPO AGOTADO"
-            puntaje_final = int(self.puntaje * factor_dificultad)
-            mensaje = f"Puntaje Final: {puntaje_final}\n(Dificultad x{factor_dificultad})"
+            puntaje_final = int(self.puntaje * self.factor_dificultad)
+            mensaje = f"Puntaje Final: {puntaje_final}"
             color_bg = "#C2773D"
-            guardar_puntaje("cazador", self.nombre_jugador, puntaje_final)
+            guardar_puntaje("cazador", self.nombre_jugador, puntaje_final, self.dificultad)
 
         self.mostrar_overlay_menu(
             titulo=titulo,

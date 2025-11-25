@@ -161,6 +161,7 @@ class MenuPrincipal:
     def set_dificultad(self, valor):
         self.dificultad_actual = valor
         self.actualizar_botones_dificultad()
+        self.cargar_tablas_puntajes()
 
     def actualizar_botones_dificultad(self):
         btns = {"facil": self.btn_facil, "medio": self.btn_medio, "dificil": self.btn_dificil}
@@ -210,8 +211,8 @@ class MenuPrincipal:
                 texto += f"{i}. {nom:<12} {pts}\n"
             return texto
 
-        top_escapa = obtener_top_5("escapa")
-        top_cazador = obtener_top_5("cazador")
+        top_escapa = obtener_top_5("escapa", self.dificultad_actual)
+        top_cazador = obtener_top_5("cazador", self.dificultad_actual)
 
         self.lbl_lista_escapa.config(text=formatear_lista(top_escapa))
         self.lbl_lista_cazador.config(text=formatear_lista(top_cazador))

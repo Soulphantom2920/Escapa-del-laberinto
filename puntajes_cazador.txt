@@ -1,0 +1,3 @@
+Santi,7800,dificil
+Santi,5700,dificil
+JULIO GAY,100,facil
