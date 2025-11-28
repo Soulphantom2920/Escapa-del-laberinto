@@ -197,4 +197,22 @@ class Enemigo:
             self.columna_actual = paso[1]
             self.ultimo_movimiento = tiempo_actual
             return True 
+        
+        else:
+            #si el jugador bloquea la salida, se muebe random para no parescan congelados
+            vecinos = [(self.fila_actual-1, self.columna_actual), 
+                       (self.fila_actual+1, self.columna_actual),
+                       (self.fila_actual, self.columna_actual-1),
+                       (self.fila_actual, self.columna_actual+1)]
+            random.shuffle(vecinos)
+
+            for vf, vc in vecinos:
+                if 0 <= vf < mapa_obj.filas and 0 <= vc < mapa_obj.columnas:
+                    casilla = mapa_obj.matriz[vf][vc]
+                    #solo se mueve si es accesible para el enemigo
+                    if casilla.es_accesible_enemigo:
+                        self.fila_actual = vf
+                        self.columna_actual = vc
+                        self.ultimo_movimiento = tiempo_actual
+                        return True
         return False

@@ -200,8 +200,8 @@ class Mapa:
         a la izq y der o arriba y abajo para que sean puentes.
         """
         # probabilidades 
-        chance_liana = 0.04  
-        chance_tunel = 0.04 
+        chance_liana = 0.05  
+        chance_tunel = 0.05 
 
         for i in range(1, self.filas- 1):
             for j in range(1, self.columnas- 1):

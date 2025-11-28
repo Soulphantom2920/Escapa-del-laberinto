@@ -2,6 +2,8 @@ import tkinter as tk
 import random 
 import sys
 import time
+import pygame #para el audio
+import os
 from mapa import Mapa  
 from entidades import Jugador, Enemigo
 from puntuaciones import guardar_puntaje 
@@ -25,7 +27,7 @@ multiplicador_dificil = 2.0
 # Configuración del modo cazador
 tiempo_cazador   = 60 #segundos
 puntos_atrapar   = 150
-puntos_escaparon = 50
+puntos_escaparon = 75
 
 # Puntos de Escapa
 base_escapa = 500
@@ -34,20 +36,22 @@ bono_x_segundo = 10
 bono_matar_cazador = 100
 
 # Colores 
-color_fondo    = "#222222"
+color_fondo    = "#392946"
 color_muro     = "#555555"   
 color_camino   = "#BBBBBB" 
-color_tunel    = "#8B4513"  
-color_liana    = "#006400"  
-color_salida   = "#00FF00"
-color_hud      = "#1A1A1A"
-color_jugador  = "#00AAFF" 
-color_enemigo  = "#FF0000"
-color_jugador_corriendo = "#0055FF" 
-color_jugador_cansado   = "#550000" 
-color_victoria = "#2E8B57" 
-color_derrota  = "#8B0000" 
-color_trampa   = "#FF00FF" 
+color_tunel    = "#884e48"  
+color_liana    = "#2c645e"  
+color_salida   = "#fbf236"
+
+color_hud      = "#181425"
+color_jugador  = "#639bff" 
+color_enemigo  = "#ac3232"
+
+color_jugador_corriendo = "#A600FF" 
+color_jugador_cansado   = "#002A7F" 
+color_victoria = "#37946e" 
+color_derrota  = "#9b0e3e" 
+color_trampa   = "#cd6612" 
 
 class JuegoTK:
     """
@@ -58,6 +62,28 @@ class JuegoTK:
         self.dificultad = dificultad
         self.nombre_jugador = nombre_jugador
         self.callback_volver = callback_volver
+
+        #iniciar los mp3
+        pygame.mixer.init()
+        try:
+            # música de fondo
+            pygame.mixer.music.load(os.path.join("recursos", "musica_fondo.mp3"))
+            pygame.mixer.music.play(-1) # Loop infinito
+            pygame.mixer.music.set_volume(0.4) 
+
+            # efectos de sonido
+            self.s_trampa = pygame.mixer.Sound(os.path.join("recursos", "poner_trampa.mp3"))
+            self.s_captura = pygame.mixer.Sound(os.path.join("recursos", "captura.mp3"))
+            self.s_escape = pygame.mixer.Sound(os.path.join("recursos", "escape_enemigo.mp3"))
+            self.s_victoria = pygame.mixer.Sound(os.path.join("recursos", "victoria.mp3"))
+            self.s_gameover = pygame.mixer.Sound(os.path.join("recursos", "game_over.mp3"))
+        except Exception as e:
+            print(f"Error sonidos: {e}")
+            self.s_trampa = None
+            self.s_captura = None
+            self.s_escape = None
+            self.s_victoria = None
+            self.s_gameover = None
 
         #factores de dificultad
         self.factor_dificultad = multiplicador_facil
@@ -101,6 +127,11 @@ class JuegoTK:
         self.puntaje = 0
         self.enemigos_eliminados_trampa = 0 
         self.tiempo_inicio_juego = time.time()
+
+        # Arreglo para que no siga el timer cuando pausamos el juego:
+        self.tiempo_total_pausado = 0  # acumula cuanto tiempo se perdio en pausas
+        self.momento_pausa_inicio = 0  # marca cuando se presionó ESC
+
         self.tiempo_limite = tiempo_cazador 
 
         # GUI
@@ -200,10 +231,18 @@ class JuegoTK:
         self.ventana.after(tiempo_ciclo, self.ciclo_juego)
 
     def arrancar_enemigos(self, cantidad):
-        # velocidad:
-        vel = 0.27 #base 
-        if self.dificultad == "medio": vel = 0.25 
-        elif self.dificultad == "dificil": vel = 0.22
+        #configuración de la velocidad
+        vel = 0.27  # Base por defecto
+        
+        if self.modo == "escapa":
+            vel = 0.27
+            if self.dificultad == "medio": vel = 0.24
+            elif self.dificultad == "dificil": vel = 0.21
+            
+        elif self.modo == "cazador":
+            vel = 0.21
+            if self.dificultad == "medio": vel = 0.19
+            elif self.dificultad == "dificil": vel = 0.16
 
         contador = 0
         intentos = 0
@@ -233,10 +272,18 @@ class JuegoTK:
         Genera un nuevo enemigo.
         """
         if self.juego_terminado: return
-        
+        #velocidades separadas
         vel = 0.27
-        if self.dificultad == "medio": vel = 0.25
-        elif self.dificultad == "dificil": vel = 0.22
+
+        if self.modo == "escapa":
+            vel = 0.27
+            if self.dificultad == "medio": vel = 0.24
+            elif self.dificultad == "dificil": vel = 0.21
+            
+        elif self.modo == "cazador":
+            vel = 0.21
+            if self.dificultad == "medio": vel = 0.19
+            elif self.dificultad == "dificil": vel = 0.16
 
         creado = False
         intentos = 0
@@ -280,18 +327,26 @@ class JuegoTK:
             i, j = self.jugador.i_pos, self.jugador.j_pos
             self.celdas_frames[i][j].configure(bg=color_trampa)
             self.actualizar_graficos_jugador()
+            if self.s_trampa: self.s_trampa.play() #sonido d la trampa
 
     def alternar_pausa(self, event=None):
         if self.juego_terminado: return 
         self.en_pausa = not self.en_pausa        
         if self.en_pausa:
+            self.momento_pausa_inicio = time.time() #guarda la hora de la pausa
+            #pausar la música
+            pygame.mixer.music.pause()
             self.mostrar_overlay_menu(
                 titulo="JUEGO EN PAUSA",
                 bg_color="#333333",
-                opciones=[("REANUDAR", self.alternar_pausa),
+                opciones=[("REANUDAR", self.alternar_pausa), 
                           ("VOLVER AL MENÚ", self.salir_al_menu),
                           ("SALIR DEL JUEGO", self.salir_del_todo)])
         else:
+            tiempo_en_pausa = time.time() - self.momento_pausa_inicio
+            self.tiempo_total_pausado += tiempo_en_pausa
+            #reanudar la música
+            pygame.mixer.music.unpause()
             if self.frame_overlay is not None:
                 self.frame_overlay.destroy()
                 self.frame_overlay = None
@@ -305,8 +360,8 @@ class JuegoTK:
             return
 
         tiempo_actual = time.time()
-        tiempo_pasado = tiempo_actual - self.tiempo_inicio_juego
-
+        tiempo_pasado = tiempo_actual - self.tiempo_inicio_juego - self.tiempo_total_pausado
+        
         # Actualizar la lógica dependiendo del modo
         if self.modo == "cazador":
             restante = int(self.tiempo_limite - tiempo_pasado)
@@ -317,7 +372,7 @@ class JuegoTK:
                 return
             self.lbl_tiempo.config(text=f"Tiempo: {restante}")
         
-        elif self.modo == "escapa": 
+        elif self.modo == "escapa":
             segundos_sobra = max(0, int(tiempo_escapa-tiempo_pasado))
             bono_tiempo = segundos_sobra * bono_x_segundo
             bono_caza = self.enemigos_eliminados_trampa * bono_matar_cazador
@@ -378,6 +433,15 @@ class JuegoTK:
         """
         enemigos_a_borrar = [] 
 
+        p_i, p_j = self.jugador.i_pos, self.jugador.j_pos
+        casilla_jugador = self.mapa.matriz[p_i][p_j]
+        estado_original_acceso = casilla_jugador.es_accesible_enemigo        
+        
+        # en el modo cazador, ahora el jugador es un muro temporalmente, 
+        # así se puede evitar que nos pasen por encima los enemigos
+        if self.modo == "cazador":
+            casilla_jugador.es_accesible_enemigo = False
+
         for enemigo in self.lista_enemigos:
             old_i, old_j = enemigo.fila_actual, enemigo.columna_actual
             self.restaurar_color_celda(old_i, old_j)
@@ -387,8 +451,30 @@ class JuegoTK:
                 enemigo.mover_hacia_jugador(self.jugador.i_pos, self.jugador.j_pos, self.mapa)
             
             elif self.modo == "cazador":
-                #huye hacia la salida
-                enemigo.mover_hacia_jugador(self.mapa.salida_i, self.mapa.salida_j, self.mapa)
+                # Lógica de evasión:
+                # calcula la distancia al jugador
+                dist_jugador = abs(enemigo.fila_actual-self.jugador.i_pos) + abs(enemigo.columna_actual-self.jugador.j_pos)
+                
+                # el destino es la salida
+                i_objetivo, j_objetivo = self.mapa.salida_i, self.mapa.salida_j
+
+                # si el jugador está muy cerca el enemigo huye lejos de nosotros
+                if dist_jugador < 3: #distancia a la que nos notan
+                    #4 esquinas seguras:
+                    esquinas = [(1, 1), (1, self.mapa.columnas-2),(self.mapa.filas-2, 1),(self.mapa.filas-2, self.mapa.columnas-2)]
+                    
+                    # se busca cual esquina está más lejos del jugador para correr hacia ella
+                    mejor_esquina = esquinas[0]
+                    max_dist = -1
+                    
+                    for (esq_i, esq_j) in esquinas:
+                        d = abs(esq_i - self.jugador.i_pos) + abs(esq_j - self.jugador.j_pos)
+                        if d > max_dist:
+                            max_dist = d
+                            mejor_esquina = (esq_i, esq_j)
+                    i_objetivo, j_objetivo = mejor_esquina
+                #se mueve al objetivo sSalida o esquina lejana al jugador)
+                enemigo.mover_hacia_jugador(i_objetivo, j_objetivo, self.mapa)
             
             new_i, new_j = enemigo.fila_actual, enemigo.columna_actual
             
@@ -401,6 +487,7 @@ class JuegoTK:
                 enemigos_a_borrar.append(enemigo)
                 self.enemigos_eliminados_trampa += 1 #el bono
                 self.ventana.after(10000, self.respawn_enemigo)
+                if self.s_captura: self.s_captura.play() #sonido de captura para la trampa
             
             # MODO CAZADOR: Enemigo llega a la salida
             elif self.modo == "cazador" and casilla.es_salida:
@@ -412,10 +499,14 @@ class JuegoTK:
                 puntos_reales = int(self.puntaje * self.factor_dificultad)
                 self.lbl_puntaje.config(text=f"Puntaje: {puntos_reales}")
                 
+                if self.s_escape: self.s_escape.play() #sonido de escape
                 enemigos_a_borrar.append(enemigo)
                 self.respawn_enemigo()
             else:
                 self.celdas_frames[new_i][new_j].configure(bg=color_enemigo)
+
+        if self.modo == "cazador":
+            casilla_jugador.es_accesible_enemigo = estado_original_acceso
 
         for e in enemigos_a_borrar:
             if e in self.lista_enemigos:
@@ -474,10 +565,11 @@ class JuegoTK:
                 if e in self.lista_enemigos:
                     self.lista_enemigos.remove(e)
                     self.puntaje += puntos_atrapar
-                    #mostrar puntos en el HUD
+                    
                     puntos_reales = int(self.puntaje * self.factor_dificultad)
                     self.lbl_puntaje.config(text=f"Puntaje: {puntos_reales}")
                     
+                    if self.s_captura: self.s_captura.play() # SONIDO CAPTURA
                     self.respawn_enemigo()
             return False
 
@@ -489,6 +581,13 @@ class JuegoTK:
         """
         self.juego_terminado = True
         
+        #detener la música de fondo y poner el sonido final
+        pygame.mixer.music.stop()
+        if gano:
+            if self.s_victoria: self.s_victoria.play()
+        else:
+            if self.s_gameover: self.s_gameover.play()
+
         titulo = ""
         mensaje = ""
         color_bg = ""
@@ -573,11 +672,14 @@ class JuegoTK:
                 callback_volver=self.callback_volver)
 
     def salir_al_menu(self):
+        #detener audio si se sale al menú
+        pygame.mixer.music.stop()
         self.ventana.destroy()
         if self.callback_volver:
             self.callback_volver()
             
     def salir_del_todo(self):
+        pygame.mixer.quit()
         self.ventana.destroy()
         sys.exit()
 

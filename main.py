@@ -1,13 +1,15 @@
 import tkinter as tk
 import sys
+import os
+import pygame #para el audio
 from juego import JuegoTK
 from puntuaciones import obtener_top_5 
 
 # Configuración del menú
-color_fondo_menu  = "#1A1A1A"
+color_fondo_menu  = "#1E2E36"
 color_texto       = "#FFFFFF"
-color_boton       = "#1A1A1A" 
-color_seleccion   = "#555555" 
+color_boton       = "#1E2E36" 
+color_seleccion   = "#1a466b" 
 fuente_titulo     = ("Impact", 55) 
 fuente_boton      = ("Arial", 22, "bold")
 fuente_texto      = ("Arial", 12)
@@ -24,6 +26,19 @@ class MenuPrincipal:
             self.raiz.attributes("-fullscreen", True)
         self.raiz.configure(bg=color_fondo_menu)
 
+        #música del menú
+        self.iniciar_musica_menu()
+        #imagen de fondo
+        try:
+            #busca en recursos
+            ruta_fondo = os.path.join("recursos", "fondo_menu.png")
+            if os.path.exists(ruta_fondo):
+                self.img_fondo = tk.PhotoImage(file=ruta_fondo)
+                self.lbl_fondo = tk.Label(self.raiz, image=self.img_fondo)
+                self.lbl_fondo.place(x=0, y=0, relwidth=1, relheight=1)
+        except Exception as e:
+            print(f"No se pudo cargar la imagen: {e}")
+
         # para configuración:
         self.nombre_jugador = tk.StringVar()
         self.dificultad_actual = "facil" 
@@ -38,6 +53,7 @@ class MenuPrincipal:
         #botones del menú
         self.crear_boton_menu("MODO ESCAPA", self.iniciar_modo_escapa)
         self.crear_boton_menu("MODO CAZADOR", self.iniciar_modo_cazador)
+        self.crear_boton_menu("INFO / CONTROLES", self.mostrar_instrucciones)
         self.crear_boton_menu("SALIR", self.salir_del_programa)
 
         # Parte der del layout:
@@ -133,6 +149,18 @@ class MenuPrincipal:
         
         self.cargar_tablas_puntajes()
 
+    def iniciar_musica_menu(self):
+        """Inicializa pygame y reproduce la música de fondo."""
+        try:
+            pygame.mixer.init()
+            ruta = os.path.join("recursos", "musica_menu_prin.mp3") 
+            if os.path.exists(ruta):
+                pygame.mixer.music.load(ruta)
+                pygame.mixer.music.play(-1) #loop infinito
+                pygame.mixer.music.set_volume(0.4)
+        except Exception as e:
+            print(f"No se pudo reproducir música: {e}")
+
     def crear_boton_menu(self, texto, comando, estado="normal"):
         color_fg = color_texto
         if estado == "disabled":
@@ -198,6 +226,9 @@ class MenuPrincipal:
     def mostrar_menu(self):
         self.raiz.deiconify()
         self.cargar_tablas_puntajes() 
+        #al volver se reinicia la música del menú
+        self.iniciar_musica_menu()
+        
         try:
             self.raiz.state("zoomed")
         except:
@@ -216,6 +247,63 @@ class MenuPrincipal:
 
         self.lbl_lista_escapa.config(text=formatear_lista(top_escapa))
         self.lbl_lista_cazador.config(text=formatear_lista(top_cazador))
+
+    def mostrar_instrucciones(self):
+        """
+        Muestra una ventanita emergente con la información de juego y los controles.
+        """
+        ventana_ayuda = tk.Toplevel(self.raiz)
+        ventana_ayuda.title("Instrucciones de Juego")
+        ventana_ayuda.geometry("650x650")
+        ventana_ayuda.configure(bg="#222222")
+        ventana_ayuda.resizable(False, False)
+
+        #centrar la ventana
+        ancho_pantalla = self.raiz.winfo_screenwidth()
+        alto_pantalla = self.raiz.winfo_screenheight()
+        x = (ancho_pantalla//2) - (300)
+        y = (alto_pantalla//2) - (275)
+        ventana_ayuda.geometry(f"600x550+{x}+{y}")
+
+        #Titulo
+        tk.Label(ventana_ayuda, text="¿CÓMO JUGAR?", 
+                 bg="#222222", fg="#FFD700", 
+                 font=("Impact", 30)).pack(pady=(20, 10))
+
+        #controles
+        texto_controles = ("--- CONTROLES ---\n\n"
+                           "MOVIMIENTO:  [W] [A] [S] [D]\n"
+                           "CORRER:  [SHIFT] (Consume tu Energía)\n"
+                           "PONER TRAMPA:  [ESPACIO] (Solo para modo Escapa)\n"
+                           "PAUSA:  [ESC]\n")
+        tk.Label(ventana_ayuda, text=texto_controles, 
+                 bg="#222222", fg="white", 
+                 font=("Consolas", 14, "bold"), justify="center").pack(pady=10)
+
+        #separador de la info
+        tk.Frame(ventana_ayuda, bg="#555555", height=2, width=500).pack(pady=10)
+
+        #explicación de los modos
+        texto_modos = ("--- MODO ESCAPA ---\n\n"
+                       "Objetivo: llegar a la salida (casilla amarilla).\n"
+                       "Evita a los cazadores (Rojos) o usa trampas para detenerlos un momento.\n"
+                       "Cuida tu energía, al correr se gasta\n\n"
+                       "--- MODO CAZADOR --- \n\n"
+                       "Te vuelves el cazador, atrapa a los enemigos antes de que\n"
+                       "lleguen a la salida. Si escapan, pierdes puntos.\n"
+                       "Consigue el mayor puntaje antes de que acabe el tiempo")
+        tk.Label(ventana_ayuda, text=texto_modos, 
+                 bg="#222222", fg="#CCCCCC", 
+                 font=("Arial", 11), justify="center").pack(pady=10)
+        
+        #botón para cerrar
+        btn_cerrar = tk.Button(ventana_ayuda, text="OK", 
+                               font=("Arial", 11, "bold"),
+                               bg=color_boton, fg="white",
+                               activebackground=color_seleccion,
+                               bd=0, cursor="hand2",
+                               command=ventana_ayuda.destroy)
+        btn_cerrar.pack(pady=20, ipadx=20, ipady=5)
 
     def salir_del_programa(self):
         self.raiz.destroy()
